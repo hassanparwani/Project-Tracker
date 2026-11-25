@@ -185,7 +185,8 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
 
     if (!isEmpty) return;
 
-    const res = await fetch('/api/seed');
+    let res = await fetch('/seed.json');
+    if (!res.ok) res = await fetch('/api/seed');
     if (!res.ok) return;
     const data = (await res.json()) as { items?: RoadmapItem[] };
     const seedItems = data.items || [];
@@ -574,7 +575,8 @@ export async function deleteRoadmapItem(
 }
 
 export async function fetchSeedFallback(): Promise<{ items: RoadmapItem[]; log: AuditLogItem[] }> {
-  const res = await fetch('/api/seed');
+  let res = await fetch('/seed.json');
+  if (!res.ok) res = await fetch('/api/seed');
   if (!res.ok) throw new Error('Could not load initial roadmap items');
   return res.json();
 }

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "npm run build && node server.js",
     "start": "node server.js",
-    "build": "npx esbuild src/firebase-client.ts --bundle --outfile=public/firebase-client.js --format=esm --platform=browser && node -c server.js && node -c seed.js",
+    "build": "esbuild src/firebase-client.ts --bundle --minify --outfile=public/firebase-client.js --format=esm --platform=browser && node scripts/build-static.js && node -c server.js && node -c seed.js",
     "lint": "npx eslint firestore.rules"
   },
   "dependencies": {
