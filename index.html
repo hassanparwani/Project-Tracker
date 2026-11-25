@@ -38,53 +38,109 @@ dialog{border:1px solid var(--ink);border-radius:6px;padding:20px;width:min(640p
 <div class="bar" id="bar"></div>
 <main id="main">Loading…</main>
 <dialog id="dlg"></dialog>
-<dialog id="ldlg"><h2>Sign in</h2><p class="mut">Everyone can view without signing in. Sign in to edit. Your name is saved in the audit log.</p>
-<div class="f"><div class="w"><label>Your name</label><input id="ln" list="pl"></div><div class="w"><label>Access code</label><input id="lc" type="password"></div></div>
-<p id="le" class="od"></p><p><button class="p" id="lok">Sign in</button> <button onclick="ldlg.close()">Cancel</button></p></dialog>
+<dialog id="ldlg"><h2>Your name &amp; sign in</h2><p class="mut">Open workspace — no sign-in required to add or edit items. Optionally set your name for the audit log or sign in with Google.</p>
+<div class="f"><div class="w"><label>Your name (saved in audit log)</label><input id="ln" list="pl" placeholder="e.g. Hassan"></div></div>
+<p id="le" class="od"></p><p><button class="p" id="lsave">Save name</button> <button id="lok">Sign in with Google</button> <button onclick="ldlg.close()">Cancel</button></p></dialog>
 <datalist id="pl"></datalist>
-<script>
+<script type="module">
+import {
+  subscribeAuth,
+  subscribeWorkspace,
+  signInWithGoogle,
+  signOutUser,
+  saveRoadmapItem,
+  deleteRoadmapItem,
+  seedFirestoreIfEmpty,
+  fetchSeedFallback,
+} from '/public/firebase-client.js';
+
 const ST=['Not started','In progress','Needs attention','Blocked','Done'],COL={'Not started':'--ns','In progress':'--ip','Needs attention':'--na','Blocked':'--bl','Done':'--dn'};
 const WS=['PMO','Payer Contracts','Recruitment','MSSP & C-SNP','Legal'];
 const TODAY=new Date().toISOString().slice(0,10),$=id=>document.getElementById(id);
 const E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let S={items:[],log:[]},V='list',U=JSON.parse(sessionStorage.getItem('u')||'null'),Q={ws:'',o:'',st:'',q:''};
+let S={items:[],log:[]},V='list',U=null,guestName=localStorage.getItem('guestName')||'',Q={ws:'',o:'',st:'',q:''},seedCache=null,confirmDelId=null,seededAttempted=false;
 const split=s=>String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
 const pill=s=>`<span class="pill" style="background:var(${COL[s]||'--ns'})">${E(s)}</span>`;
 const late=i=>i.d&&i.d<TODAY&&i.st!=='Done';
 const dtxt=i=>i.dl||i.d||'<span class="mut">No date</span>';
-async function api(b){const r=await fetch('/api/state',b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...b,who:U&&U.who,code:U&&U.code})}:{});const j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
-async function load(){try{S=await api();draw()}catch(e){$('main').innerHTML='<div class="warn">Could not load data: '+E(e.message)+'. Check the database connection in Vercel.</div>'}}
+
 function people(){const p=new Set();S.items.forEach(i=>['a','r','c'].forEach(f=>split(i[f]).forEach(x=>p.add(x))));return[...p].sort()}
 function filt(){return S.items.filter(i=>(!Q.ws||i.ws===Q.ws)&&(!Q.st||i.st===Q.st)&&(!Q.o||[i.a,i.r,i.c].some(f=>split(f).includes(Q.o)))&&(!Q.q||(i.t+i.n).toLowerCase().includes(Q.q.toLowerCase())))}
 function draw(){
- $('who').textContent=U?`${U.who} (${U.role==='admin'?'admin':'team'})`:'View only';$('lg').textContent=U?'Sign out':'Sign in to edit';
- $('upd').textContent=S.log[0]?'Last change: '+S.log[0].at.slice(0,10)+' by '+S.log[0].who:'';
+ $('who').textContent=U?`${U.who}`:(guestName?`${guestName} (open edit)`:'Open workspace');$('lg').textContent=U?'Sign out':(guestName?'Change name':'Set name / Sign in');
+ $('upd').textContent=S.log[0]&&S.log[0].at?'Last change: '+S.log[0].at.slice(0,10)+' by '+S.log[0].who:'';
  $('pl').innerHTML=people().map(p=>`<option>${E(p)}</option>`).join('');
- $('nav').innerHTML=[['list','Roadmap'],['time','Timeline'],['n40','Next 40 days'],['raci','RACI & load'],['log','Audit log']].map(([k,l])=>`<button class="${V===k?'on':''}" onclick="V='${k}';draw()">${l}</button>`).join('');
+ $('nav').innerHTML=[['list','Roadmap'],['time','Timeline'],['n40','Next 40 days'],['raci','RACI & load'],['log','Audit log']].map(([k,l])=>`<button class="${V===k?'on':''}" onclick="setView('${k}')">${l}</button>`).join('');
  const opt=(a,v)=>a.map(x=>`<option ${x===v?'selected':''}>${E(x)}</option>`).join('');
- $('bar').innerHTML=V==='log'?'':`<select onchange="Q.ws=this.value;draw()"><option value="">All workstreams</option>${opt(WS,Q.ws)}</select><select onchange="Q.o=this.value;draw()"><option value="">Anyone</option>${opt(people(),Q.o)}</select><select onchange="Q.st=this.value;draw()"><option value="">Any status</option>${opt(ST,Q.st)}</select><input placeholder="Search" value="${E(Q.q)}" onchange="Q.q=this.value;draw()">${U&&U.role==='admin'?'<button class="p" onclick="edit()">+ Add item</button>':''}`;
+ $('bar').innerHTML=V==='log'?'':`<select onchange="setFilter('ws',this.value)"><option value="">All workstreams</option>${opt(WS,Q.ws)}</select><select onchange="setFilter('o',this.value)"><option value="">Anyone</option>${opt(people(),Q.o)}</select><select onchange="setFilter('st',this.value)"><option value="">Any status</option>${opt(ST,Q.st)}</select><input placeholder="Search" value="${E(Q.q)}" onchange="setFilter('q',this.value)"><button class="p" onclick="edit()">+ Add item</button>`;
  $('main').innerHTML=({list,time,n40,raci,log})[V]();
 }
 function kpis(L){const c=s=>L.filter(i=>i.st===s).length;return`<div class="kpis"><div class="k"><b>${L.length}</b>items</div>${ST.map(s=>`<div class="k"><b style="color:var(${COL[s]})">${c(s)}</b>${s}</div>`).join('')}<div class="k"><b class="od">${L.filter(late).length}</b>overdue</div></div>`}
-function row(i){return`<tr class="r" onclick="edit('${i.id}')"><td>${E(i.t)}${i.n?`<div class="mut">${E(i.n)}</div>`:''}</td><td>${E(i.a)}</td><td>${E(i.r)}</td><td class="${late(i)?'od':''}">${dtxt(i)}${late(i)?' (overdue)':''}</td><td>${pill(i.st)}</td></tr>`}
+function row(i){return`<tr class="r" onclick="edit('${E(i.id)}')"><td>${E(i.t)}${i.n?`<div class="mut">${E(i.n)}</div>`:''}</td><td>${E(i.a)}</td><td>${E(i.r)}</td><td class="${late(i)?'od':''}">${dtxt(i)}${late(i)?' (overdue)':''}</td><td>${pill(i.st)}</td></tr>`}
 function list(){const L=filt();return kpis(L)+WS.filter(w=>L.some(i=>i.ws===w)).map(w=>{const X=L.filter(i=>i.ws===w).sort((a,b)=>(a.d||'9')<(b.d||'9')?-1:1);return`<div class="ws"><h2>${w}</h2><span class="mut">${X.filter(i=>i.st==='Done').length}/${X.length} done</span></div><div class="tbl"><table><tr><th style="width:44%">Item</th><th>Accountable</th><th>Responsible</th><th>Due</th><th>Status</th></tr>${X.map(row).join('')}</table></div>`}).join('')}
 function time(){const t0=new Date('2026-11-01'),t1=new Date('2028-01-01'),sp=t1-t0,pc=d=>Math.max(0,Math.min(100,(new Date(d)-t0)/sp*100));
  const mo=Array.from({length:14},(_,i)=>new Date(Date.UTC(2026,10+i,1)).toLocaleString('en',{month:'short',year:'2-digit',timeZone:'UTC'}));
- const L=filt();return`<div class="mo"><div></div>${mo.map(m=>`<div>${m}</div>`).join('')}</div>`+WS.filter(w=>L.some(i=>i.ws===w)).map(w=>`<div class="ws"><h2>${w}</h2></div>`+L.filter(i=>i.ws===w&&i.d).sort((a,b)=>(a.s||a.d)<(b.s||b.d)?-1:1).map(i=>{const s=pc(i.s||i.d),e=pc(i.d);return`<div class="g"><div class="l" onclick="edit('${i.id}')" title="${E(i.t)}">${E(i.t)}</div><div class="t"><div class="bd" style="left:${s}%;width:${Math.max(e-s,.6)}%;background:var(${COL[i.st]})" title="${E(i.dl||i.d)}"></div>${TODAY>='2026-11-01'?`<div class="td" style="left:${pc(TODAY)}%"></div>`:''}</div></div>`}).join('')+(L.filter(i=>i.ws===w&&!i.d).map(i=>`<div class="g"><div class="l" onclick="edit('${i.id}')">${E(i.t)}</div><div class="mut">No date yet: ${E(i.dl)}</div></div>`).join(''))).join('')}
+ const L=filt();return`<div class="mo"><div></div>${mo.map(m=>`<div>${m}</div>`).join('')}</div>`+WS.filter(w=>L.some(i=>i.ws===w)).map(w=>`<div class="ws"><h2>${w}</h2></div>`+L.filter(i=>i.ws===w&&i.d).sort((a,b)=>(a.s||a.d)<(b.s||b.d)?-1:1).map(i=>{const s=pc(i.s||i.d),e=pc(i.d);return`<div class="g"><div class="l" onclick="edit('${E(i.id)}')" title="${E(i.t)}">${E(i.t)}</div><div class="t"><div class="bd" style="left:${s}%;width:${Math.max(e-s,.6)}%;background:var(${COL[i.st]})" title="${E(i.dl||i.d)}"></div>${TODAY>='2026-11-01'?`<div class="td" style="left:${pc(TODAY)}%"></div>`:''}</div></div>`}).join('')+(L.filter(i=>i.ws===w&&!i.d).map(i=>`<div class="g"><div class="l" onclick="edit('${E(i.id)}')">${E(i.t)}</div><div class="mut">No date yet: ${E(i.dl)}</div></div>`).join(''))).join('')}
 function n40(){const e=new Date(Date.now()+40*864e5).toISOString().slice(0,10),L=filt().filter(i=>i.d&&i.st!=='Done'&&i.d<=e).sort((a,b)=>a.d<b.d?-1:1);return kpis(L)+`<p class="mut">Everything due by ${e}, plus overdue items. Today is ${TODAY}.</p><div class="tbl"><table><tr><th>Item</th><th>Accountable</th><th>Responsible</th><th>Due</th><th>Status</th></tr>${L.map(row).join('')}</table></div>`}
 function raci(){const L=filt(),P=people(),cell=(i,p)=>split(i.a).includes(p)?'A':split(i.r).includes(p)?'R':split(i.c).includes(p)?'C':'';
- const load=p=>L.filter(i=>split(i.a).includes(p)&&i.st!=='Done').length,mx=Math.max(...P.map(load),0);
+ const load=p=>L.filter(i=>split(i.a).includes(p)&&i.st!=='Done').length;
  const heavy=P.filter(p=>load(p)>=12).map(p=>`${p} (${load(p)})`);
- return(heavy.length?`<div class="warn"><b>Overload risk:</b> ${E(heavy.join(', '))} accountable for 12 or more open items.</div>`:'')+`<p class="mut">A = accountable, R = responsible, C = consulted. Edit an item to change who is on it.</p><div class="tbl"><table class="raci"><tr><th>Item</th>${P.map(p=>`<th>${E(p)}</th>`).join('')}</tr><tr><td><b>Open items accountable</b></td>${P.map(p=>`<td class="${load(p)>=12?'od':''}"><b>${load(p)}</b></td>`).join('')}</tr>${L.map(i=>`<tr><td onclick="edit('${i.id}')" style="cursor:pointer"><span class="mut">${E(i.ws)}</span> ${E(i.t)}</td>${P.map(p=>{const c=cell(i,p);return`<td class="${c}">${c}</td>`}).join('')}</tr>`).join('')}</table></div>`}
-function log(){return`<p class="mut">Every change, newest first. Names come from sign-in.</p><div class="tbl"><table><tr><th>When</th><th>Who</th><th>Item</th><th>Change</th></tr>${S.log.map(l=>`<tr><td>${E(l.at.replace('T',' ').slice(0,16))}</td><td>${E(l.who)}</td><td>${E(l.t||'')}</td><td>${E(l.act)}${(l.ch||[]).map(c=>`<div class="mut">${E(c[0])}: "${E(c[1])}" → "${E(c[2])}"</div>`).join('')}</td></tr>`).join('')}</table></div>`}
-function edit(id){const i=S.items.find(x=>x.id===id)||{id:'',ws:Q.ws||WS[0],st:'Not started'},A=U&&U.role==='admin',T=U&&U.role==='team',ro=f=>A||(T&&(f==='st'||f==='n'))?'':'disabled';
- const inp=(f,l,w,ty)=>`<div class="${w?'w':''}"><label>${l}</label><input id="f_${f}" ${ty||''} list="pl" value="${E(i[f])}" ${ro(f)}></div>`;
- $('dlg').innerHTML=`<h2>${id?'Edit item':'New item'}</h2>${U?'':'<p class="mut">View only. Sign in to edit.</p>'}<div class="f">${inp('t','Title',1)}<div><label>Workstream</label><select id="f_ws" ${ro('ws')}>${WS.map(w=>`<option ${w===i.ws?'selected':''}>${w}</option>`).join('')}</select></div><div><label>Status</label><select id="f_st" ${ro('st')}>${ST.map(w=>`<option ${w===i.st?'selected':''}>${w}</option>`).join('')}</select></div>
- ${inp('a','Accountable (A), comma separated')}${inp('r','Responsible (R)')}${inp('c','Consulted (C)',1)}${inp('s','Start','', 'type="date"')}${inp('d','Due','', 'type="date"')}${inp('dl','Date label (for example Q1 2027), shown instead of the date',1)}<div class="w"><label>Notes</label><textarea id="f_n" rows="3" ${ro('n')}>${E(i.n)}</textarea></div></div>
- <p>${U?`<button class="p" onclick="save('${i.id}')">Save</button> `:''}${A&&id?`<button onclick="del('${id}')">Delete</button> `:''}<button onclick="dlg.close()">Close</button></p><p id="fe" class="od"></p>`;$('dlg').showModal()}
-async function save(id){const it={id};['t','ws','st','a','r','c','s','d','dl','n'].forEach(f=>it[f]=$('f_'+f).value);if(!it.t.trim())return $('fe').textContent='Title is required';try{S=await api({op:'save',item:it});$('dlg').close();draw()}catch(e){$('fe').textContent=e.message}}
-async function del(id){if(!confirm('Delete this item? It stays in the audit log.'))return;try{S=await api({op:'del',id});$('dlg').close();draw()}catch(e){$('fe').textContent=e.message}}
-$('lg').onclick=()=>{if(U){U=null;sessionStorage.removeItem('u');draw()}else $('ldlg').showModal()};
-$('lok').onclick=async()=>{const who=$('ln').value.trim(),code=$('lc').value;try{U={who,code};const r=await api({op:'auth'});U={who,code,role:r.role};sessionStorage.setItem('u',JSON.stringify(U));$('ldlg').close();draw()}catch(e){U=null;$('le').textContent=e.message}};
-load();
+ return(heavy.length?`<div class="warn"><b>Overload risk:</b> ${E(heavy.join(', '))} accountable for 12 or more open items.</div>`:'')+`<p class="mut">A = accountable, R = responsible, C = consulted. Edit an item to change who is on it.</p><div class="tbl"><table class="raci"><tr><th>Item</th>${P.map(p=>`<th>${E(p)}</th>`).join('')}</tr><tr><td><b>Open items accountable</b></td>${P.map(p=>`<td class="${load(p)>=12?'od':''}"><b>${load(p)}</b></td>`).join('')}</tr>${L.map(i=>`<tr><td onclick="edit('${E(i.id)}')" style="cursor:pointer"><span class="mut">${E(i.ws)}</span> ${E(i.t)}</td>${P.map(p=>{const c=cell(i,p);return`<td class="${c}">${c}</td>`}).join('')}</tr>`).join('')}</table></div>`}
+function log(){return`<p class="mut">Every change, newest first.</p><div class="tbl"><table><tr><th>When</th><th>Who</th><th>Item</th><th>Change</th></tr>${S.log.map(l=>`<tr><td>${E((l.at||'').replace('T',' ').slice(0,16))}</td><td>${E(l.who)}</td><td>${E(l.t||'')}</td><td>${E(l.act)}${(l.changes||[]).map(c=>`<div class="mut">${E(c)}</div>`).join('')}${(l.ch||[]).map(c=>`<div class="mut">${E(c[0])}: "${E(c[1])}" → "${E(c[2])}"</div>`).join('')}</td></tr>`).join('')}</table></div>`}
+function edit(id){
+ confirmDelId=null;
+ const i=S.items.find(x=>x.id===id)||{id:'',ws:Q.ws||WS[0],st:'Not started'};
+ const inp=(f,l,w,ty)=>`<div class="${w?'w':''}"><label>${l}</label><input id="f_${f}" ${ty||''} list="pl" value="${E(i[f])}"></div>`;
+ $('dlg').innerHTML=`<h2>${id?'Edit item':'New item'}</h2><div class="f">${inp('t','Title',1)}<div><label>Workstream</label><select id="f_ws">${WS.map(w=>`<option ${w===i.ws?'selected':''}>${w}</option>`).join('')}</select></div><div><label>Status</label><select id="f_st">${ST.map(w=>`<option ${w===i.st?'selected':''}>${w}</option>`).join('')}</select></div>
+ ${inp('a','Accountable (A), comma separated')}${inp('r','Responsible (R)')}${inp('c','Consulted (C)',1)}${inp('s','Start','', 'type="date"')}${inp('d','Due','', 'type="date"')}${inp('dl','Date label (for example Q1 2027), shown instead of the date',1)}<div class="w"><label>Notes</label><textarea id="f_n" rows="3">${E(i.n)}</textarea></div></div>
+ <p><button class="p" onclick="save('${E(i.id)}')">Save</button> ${id?`<button id="delBtn" onclick="del('${E(id)}')">Delete</button> `:''}<button onclick="dlg.close()">Close</button></p><p id="fe" class="od"></p>`;$('dlg').showModal()
+}
+async function save(id){
+ const it={};['t','ws','st','a','r','c','s','d','dl','n'].forEach(f=>it[f]=$('f_'+f).value);
+ if(!it.t.trim()){$('fe').textContent='Title is required';return;}
+ const existing=id?S.items.find(x=>x.id===id):undefined;
+ try{await saveRoadmapItem(it,existing,U,guestName);$('dlg').close();}catch(e){$('fe').textContent=e.message;}
+}
+async function del(id){
+ if(confirmDelId!==id){confirmDelId=id;const b=$('delBtn');if(b)b.textContent='Confirm delete?';return;}
+ const existing=S.items.find(x=>x.id===id);if(!existing)return;
+ try{await deleteRoadmapItem(existing,U,guestName);$('dlg').close();}catch(e){$('fe').textContent=e.message;}
+}
+
+window.setView=(v)=>{V=v;draw();};
+window.setFilter=(k,v)=>{Q[k]=v;draw();};
+window.edit=edit;
+window.save=save;
+window.del=del;
+
+$('lg').onclick=async()=>{if(U){await signOutUser();}else{$('le').textContent='';$('ln').value=guestName;$('ldlg').showModal();}};
+$('lsave').onclick=()=>{guestName=$('ln').value.trim().slice(0,80);localStorage.setItem('guestName',guestName);$('ldlg').close();draw();};
+$('lok').onclick=async()=>{
+  $('le').textContent='';
+  try{
+    U=await signInWithGoogle($('ln').value);
+    $('ldlg').close();
+    draw();
+  }catch(e){
+    $('le').textContent=e.message||'Sign in failed';
+  }
+};
+
+subscribeAuth((user)=>{U=user;draw();});
+subscribeWorkspace(
+  async ({items,log,emptyInDb})=>{
+    if(emptyInDb){
+      if(!seededAttempted){
+        seededAttempted=true;
+        try{await seedFirestoreIfEmpty();}catch(e){console.warn('Auto-seed skipped:', e);}
+      }
+      if(!seedCache){try{seedCache=await fetchSeedFallback();}catch{seedCache={items:[],log:[]};}}
+      S=seedCache;
+    }else{
+      S={items,log};
+    }
+    draw();
+  },
+  (err)=>{$('main').innerHTML='<div class="warn">Could not load roadmap data: '+E(err.message)+'</div>';}
+);
 </script></body></html>

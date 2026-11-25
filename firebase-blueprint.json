@@ -1,0 +1,234 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public/workspace role profile for an authenticated team member or admin (no PII).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name shown in the UI and audit log",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "description": "Access role in the workspace",
+          "enum": ["admin", "team"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated private PII record for a user (email address).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "RoadmapItem": {
+      "title": "RoadmapItem",
+      "description": "A Project Growth roadmap milestone or task across workstreams.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Item identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ws": {
+          "type": "string",
+          "description": "Workstream name",
+          "enum": ["PMO", "Payer Contracts", "Recruitment", "MSSP & C-SNP", "Legal"]
+        },
+        "t": {
+          "type": "string",
+          "description": "Item title",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "a": {
+          "type": "string",
+          "description": "Accountable (A), comma-separated names",
+          "maxLength": 600
+        },
+        "r": {
+          "type": "string",
+          "description": "Responsible (R), comma-separated names",
+          "maxLength": 600
+        },
+        "c": {
+          "type": "string",
+          "description": "Consulted (C), comma-separated names",
+          "maxLength": 600
+        },
+        "s": {
+          "type": "string",
+          "description": "Start date (YYYY-MM-DD or empty)",
+          "maxLength": 32
+        },
+        "d": {
+          "type": "string",
+          "description": "Due date (YYYY-MM-DD or empty)",
+          "maxLength": 32
+        },
+        "dl": {
+          "type": "string",
+          "description": "Human-readable date label",
+          "maxLength": 100
+        },
+        "st": {
+          "type": "string",
+          "description": "Current status",
+          "enum": ["Not started", "In progress", "Needs attention", "Blocked", "Done"]
+        },
+        "n": {
+          "type": "string",
+          "description": "Notes",
+          "maxLength": 1000
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Workspace visibility scope",
+          "enum": ["workspace"]
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Firebase Auth UID of creator",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["id", "ws", "t", "a", "r", "c", "s", "d", "dl", "st", "n", "visibility", "createdBy", "createdAt", "updatedAt"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Immutable audit trail record for roadmap changes.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string",
+          "description": "ISO-8601 timestamp string for display",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "who": {
+          "type": "string",
+          "description": "Display name of the actor",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the actor",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role used for the action",
+          "enum": ["admin", "team", "system", "guest"]
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Affected roadmap item ID",
+          "maxLength": 128
+        },
+        "t": {
+          "type": "string",
+          "description": "Title of the affected item",
+          "maxLength": 600
+        },
+        "act": {
+          "type": "string",
+          "description": "Action performed",
+          "enum": ["Seeded", "Created", "Edited", "Deleted"]
+        },
+        "changes": {
+          "type": "array",
+          "description": "List of field diffs formatted as strings (max 10)"
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Workspace visibility scope",
+          "enum": ["workspace"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": ["at", "who", "uid", "role", "itemId", "t", "act", "changes", "visibility", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated user role and display name profiles."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Private PII (email) isolated to the owning user."
+    },
+    "/roadmap_items/{itemId}": {
+      "schema": { "$ref": "#/entities/RoadmapItem" },
+      "description": "Project Growth roadmap items across workstreams."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogEntry" },
+      "description": "Immutable audit log of roadmap item mutations."
+    }
+  }
+}
